@@ -382,7 +382,7 @@ graphs; every metamorphic pair is isomorphic.
 | D8 | 2026-09-08 | **Far field defaults to a circle. The conventional constructors — `circle_farfield`, `c_farfield`, `box_farfield` — are provided alongside `offset_farfield`.** | D4 overcorrected. By Table C in the review, the truncation curve is a *supplied* input: a circle is geometry, not prescription. Three measured reasons. (1) The blob's only technical claim, uniform truncation distance, is worth **3.1% of R at 15 chords and 0.9% at 50** — a circle is already uniform at any realistic far field. (2) The blob and a circle produce **identical** topology: 0 corners, 0 flares, 0 junctions. It buys nothing. (3) A corner-free default **removes the C and H topologies entirely**, because their flares come from the far-field corners — measured: circle 0 flares, C-shape 2, box 4. Non-standard shapes also make comparison against pyHyp, construct2d and published results harder for no gain. `offset_farfield` is kept for tight or widely spread configurations, where the hull genuinely wraps better. |
 | D5 | 2026-09-08 | **Neural operator (old Phase D) cut from the critical path; Bunin φ kept as an optional FEM stage (S7).** | The operator existed to make ~1000 CMA-ES quality evaluations cheap. Topology is now solved and certified rather than searched, leaving ~6 smooth continuous parameters — tens of L-BFGS evaluations, where exact 100 ms evaluations cost seconds. Revisit only for the 3-D extension (per-section cost × 15–20 stations) or for ∂quality/∂shape in shape optimisation. |
 | D6 | 2026-09-08 | **Validation targets deferred; invariants not.** | Comparing against pyHyp / construct2d / SU2 drag can wait for meshes to exist. The invariant gates cannot — they are what prevents the next false-confidence build. S5 sits before the optimisation work, not at the end. |
-| D7 | 2026-09-08 | Superseded modules kept in place, not deleted. | The repository is not under version control. `medial/`, `topology/`, `blocking/`, `mesh/`, `geometry/boundary.py` and `domain/outer.py` are superseded but still import cleanly. **Run `git init` before S1 removes any of them.** |
+| D7 | 2026-09-08 | ~~Superseded modules kept in place because the repository is not under version control.~~ **Resolved: the repository is under git** (`main`, everything committed), so the superseded modules can be removed whenever convenient. They still import cleanly and nothing on the current path uses them. |
 
 ---
 
@@ -421,24 +421,39 @@ these is how a skeleton with zero-radius branches shipped as "strictly validated
 
 ---
 
-## Superseded, pending removal
+## Removed
 
-Kept only because there is no version control yet (see D7). None of it is on
-the new code path.
+Deleted 2026-09-24, once the repository was under git so the removal is
+recoverable. None of it was on the current code path, and nothing that remains
+imports any of it.
 
 | Path | Superseded by | Why |
 |---|---|---|
 | `geometry/boundary.py` | `geometry/loop.py`, `geometry/airfoil.py` | `Boundary` assumed one airfoil; split upper/lower at min-x, a parameterisation artefact |
 | `domain/outer.py` | `domain/farfield.py` | `DomainType` and the C/O/H builders are prescription (D2) |
-| `medial/cdt.py`, `medial/graph.py` | `medial/axis.py`, `medial/fields.py` | Label-based medial test; no θ_m, n̂ or touch points; CDT discarded |
-| `topology/classify.py`, `topology/design.py` | S2 | Magic-number classification; `np.full(20, 40)` interfaces |
-| `blocking/blocks.py` | S3 | Hardcoded C template behind a dispatch that cannot branch |
-| `mesh/algebraic.py`, `mesh/smoothing.py` | S4 | Stubs returning zeros and their own input |
-| `examples/01–03` | `examples/10_region_any_bodies.py` | Exercise the superseded path |
+| `medial/cdt.py`, `medial/graph.py` | `medial/axis.py`, `medial/fields.py` | Label-based medial test; no θ_m, n̂ or touch points; CDT computed then discarded |
+| `topology/classify.py`, `topology/design.py` | `topology/singularities.py` | Magic-number classification; `np.full(20, 40)` interfaces |
+| `blocking/blocks.py` | `blocking/splits.py` + the S3 builder | Hardcoded C template behind a dispatch that could not branch |
+| `mesh/algebraic.py`, `mesh/smoothing.py` | S4 | Stubs returning zeros and their own input, documenting behaviour they did not have |
+| `_viz.py` | per-example plotting | Only the removed examples used it |
+| `tests/test_geometry.py`, `test_domain.py`, `test_medial_legacy.py`, `conftest.py` | the S0–S3 suites | Exercised the removed modules; no surviving test used the fixtures |
+| `examples/01`–`03` | `examples/10`–`13` | Exercised the superseded path |
+| 11 stale `output/*.png` | `output/10`–`13` | Produced by the removed examples |
 
----
+The planning documents were also removed from `.gitignore` and are now tracked:
+`Long_term_plan.md`, `MAPS_Implementation_Plan.md`, `MAPS_Proposal_v2.md` and the
+Obsidian note. Only `PAPER/references/` stays ignored — 14 MB of third-party
+PDFs, not ours to redistribute.
 
 ## Changelog
+
+### 2026-09-24 — superseded code removed, documents tracked
+- Deleted 29 files: the superseded modules, their tests, the four old examples
+  and the stale output they produced. Package `__init__` files rewritten; every
+  package still imports and the suite is unchanged.
+- `.gitignore` reduced to build artefacts, the reference PDFs and the Obsidian
+  internals, so the planning documents and the proposal are now under version
+  control.
 
 ### 2026-09-08 — S3 started
 - `blocking/splits.py`: constant-s splits with Fogg's ranking; orthogonality to

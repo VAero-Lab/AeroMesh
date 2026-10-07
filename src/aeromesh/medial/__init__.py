@@ -3,9 +3,8 @@
 ``aeromesh.medial.axis`` is the current engine (S1): it computes both skeletons
 with their full field set and types their vertices.
 
-``aeromesh.medial.cdt`` and ``aeromesh.medial.graph`` are superseded and retained
-only until the repository is under version control; see decision D7 in
-PROJECT_TRACKER.md. Nothing on the current path imports them.
+``fields`` computes the geometric quantities on it: the medial radius, the
+medial angle, the unit normals and the touch points.
 """
 
 from aeromesh.medial.axis import (

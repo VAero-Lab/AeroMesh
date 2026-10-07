@@ -6,12 +6,8 @@ __pycache__/
 build/
 dist/
 
-# Paper docs
-PAPER
-PAPER/references
-AeroMesh-notebook
+# Reference PDFs - large, third-party, not ours to redistribute
+PAPER/references/
 
-# Planning markdowns
-Long_term_plan.md
-MAPS_Implementation_Plan.md
-MAPS_Proposal_v2.md
+# Obsidian vault internals
+AeroMesh-notebook/.obsidian/
