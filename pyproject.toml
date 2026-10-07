@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aeromesh"
+version = "0.4.0"
+description = "Automatic structured multiblock meshing for 2D airfoils via the Medial Axis Transform"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+authors = [
+    {name = "Victor Alulema"}
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering",
+    "Intended Audience :: Science/Research",
+]
+
+dependencies = [
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "matplotlib>=3.7",
+    "shapely>=2.0",
+    "networkx>=3.0",
+    "meshio>=5.3",
+    "triangle>=20230923",
+    "aeroshape>=4.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0", "pytest-cov"]
+vtk = ["vtk>=9.2"]
+opt = ["cma>=3.3"]
+
+[project.urls]
+Repository = "https://github.com/victor-alulema/aeromesh"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["aeromesh*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+build/
+dist/
+
+# Paper docs
+PAPER
+PAPER/references
+AeroMesh-notebook
+
+# Planning markdowns
+Long_term_plan.md
+MAPS_Implementation_Plan.md
+MAPS_Proposal_v2.md
