@@ -30,7 +30,7 @@ case. It must be named as such where it is used.
 | **S0** | Loop / corners / cusp policy / Region / far field | ✅ **done** 2026-09-08 | 1 wk | met |
 | **S1** | Medial engine — r_m, θ_m, normals, typing, finite contact | ✅ **done** 2026-09-08 | 2 wk | met |
 | **S2** | Singularity solver + certificates | ⚠️ **mostly done** | 1.5 wk | 4 of 6 |
-| **S3** | Decomposition | 🔨 **started** | 2.5 wk | — |
+| **S3** | Decomposition | 🔨 **blocks build and tile** | 2.5 wk | partial |
 | **S4** | Mesh construction (TFI, TTM, export) | ⬜ not started | 1.5 wk | — |
 | **S5** | Adversarial geometry gate | ⬜ not started | 1 wk | — |
 | **S6** | Quality metrics + optimisation | ⬜ not started | 1.5 wk | — |
@@ -289,20 +289,76 @@ per-case code at all.
       coin flip that reordered `t1`/`t2` from one sample to the next and would
       have scrambled every block boundary. Now ordered by (loop, sample index).
 
+- [x] `blocking/blocks.py` — **block construction, constructively from the medial
+      graph**. A span between two cuts on a medial edge is a four-sided block
+      (two radius pairs, two boundary arcs); a medial vertex is an m-sided
+      region bounded by the innermost cut on each incident edge; a flare ending
+      at a corner is a three-sided wedge; a medial loop with no vertices is one
+      ring wrapping on itself. The face structure is the medial graph's, so no
+      planar arrangement is computed.
+- [x] Boundary arcs recovered by stitching the short path between consecutive
+      touch indices, which handles direction and wrap without having to work
+      either out.
+- [x] **Tiling validation** — the decisive check. Blocks' areas must sum to the
+      fluid area; a gap or an overlap shows up at once.
+
+**Review of the builder, 2026-09-24.** The first version passed an area-sum
+check, which turned out to be far too weak. Three defects were found and fixed.
+
+1. **Every join between a split and an arc was left open by half a boundary
+   sample spacing.** A split ends at the *exact* perpendicular foot on the
+   boundary -- that exactness is what made θ_m second order in S1 -- while an arc
+   was built from boundary *samples*. The two differ by up to half a spacing, so
+   each block outline had a hole at every one of its four corners. Fixed by
+   splicing the exact feet in as the arcs' endpoints. Joins now close to 10⁻¹⁶.
+2. **A name-shadowing bug put a boundary *index* into an outline as a
+   *coordinate*.** Inside `boundary_arc`, a local `start, n = int(offsets[loop])
+   …` overwrote the `start` parameter, so `arc[0] = start` assigned the integer
+   loop offset to both components — producing outline vertices at (1399, 1399)
+   and (0, 0). This is the one that matters most, because **it is invisible to
+   every area-based check**: a spike out to such a point is a zero-area sliver.
+   It also slipped past a shapely overlap test because `buffer(0)` silently
+   repaired it.
+3. **Collapsed sides were kept.** Two cuts can terminate at exactly the same
+   boundary point — typically a sharp corner on a body, where the medial radii
+   from either side both land on the corner. The arc between them is then empty
+   and the region is one side shorter; keeping the empty side left a repeated
+   vertex that made the outline non-simple for no geometric reason.
+
+`validate` now checks joins, stray vertices and degeneracy, and
+`validate_strict` adds the shapely tests — self-intersection, and overlap, gap
+and spill measured *separately* rather than inferred from one area total.
+
+**Results after the fixes.** Every configuration is simple, closed, and tiles
+with overlap, gap and spill all below 10⁻¹⁵ of the region area:
+
+| configuration | blocks | composition | area error |
+|---|---|---|---|
+| 1 body, smooth far field | 1 | ring ×1 | 0 |
+| 1 body, C-shape | 8 | span 4, vertex 2, corner 2 | 7.9e−12 |
+| 1 body, box | 16 | span 8, vertex 4, corner 4 | 6.1e−11 |
+| 2 bodies, box | 21 | span 11, vertex 6, corner 4 | 3.9e−10 |
+| 3 bodies, box | 26 | span 14, vertex 8, corner 4 | 6.4e−10 |
+| 1 body, box, 4 splits/edge | 40 | span 32, vertex 4, corner 4 | 9.5e−11 |
+
+(Before the fixes these read 10⁻⁵ — five orders of magnitude worse, and the
+spikes were not visible at all.)
+
 **Still to build.**
 
+- [ ] **Fogg's neighbour database and the ranked split search.** This is the
+      gap that matters now. Splits are currently placed at a fixed fraction
+      along each edge, so the decomposition is *valid* but not *good*: vertex
+      regions sprawl and spans are thin slabs. The search is what places cuts so
+      that singularities end up inside logically convex regions, and it is what
+      turns a tiling into a blocking worth meshing.
 - [ ] Constant-ρ splits (level sets of ρ = d_wall/r_m), the ring interfaces.
-- [ ] Fogg's neighbour database and the ranked split search; singularities fixed
-      into block corners only when no permitted split exists.
-- [ ] Block construction. The architecture is constructive rather than an
-      arrangement computation: cutting a medial edge at a set of positions makes
-      each span between consecutive splits a four-sided block (two radius pairs,
-      two boundary arcs), and each medial vertex an m-sided region bounded by
-      the innermost split on each incident edge. The face structure follows from
-      the medial graph, so no planar arrangement is needed.
+- [ ] Conformal connectivity between blocks, and the edge-division integer
+      programme.
 - [ ] Midpoint-subdivision templates for logically convex m-gons — the one
       permitted primitive, to be named as such where it is used.
-- [ ] Conformal connectivity and the edge-division integer programme.
+- [ ] Region builders for `FINITE_CONTACT` vertices (reported in `notes`, not
+      silently skipped).
 
 **Finding to carry into the block builder.** A collapsed medial edge can span a
 change in *which loops* its two touches lie on — the ring edge's inner touch
@@ -313,10 +369,12 @@ So the block builder has to handle a block whose two arcs are not on the same
 pair of loops, or place splits densely enough that none spans the transition —
 and validate that no block does.
 
-**Gate.** Lone airfoil → ring; cusped TE → the classic C topology; box far field
-→ ring plus corner blocks; two-element → slot blocks. All from one code path,
-and `grep -riE 'airfoil|naca|c-?grid|o-?grid|h-?grid' src/aeromesh/blocking/`
-returns nothing.
+**Gate — structure met, quality not yet.** A lone body gives a ring; a box far
+field gives a ring of spans plus one wedge per corner; two- and three-element
+configurations give slot blocks; all from one code path, and the
+anti-prescription grep over `src/aeromesh/blocking/` returns nothing. What is
+not yet met is that the blocks be *good* — that waits on the ranked split
+search.
 
 ---
 
@@ -446,6 +504,29 @@ Obsidian note. Only `PAPER/references/` stays ignored — 14 MB of third-party
 PDFs, not ours to redistribute.
 
 ## Changelog
+
+### 2026-09-24 — block builder reviewed and corrected
+- Audited the builder with shapely rather than an area sum, and found three
+  defects the area sum could not see: open joins at every split/arc junction, a
+  name-shadowing bug writing boundary *indices* into outlines as *coordinates*
+  (a zero-area spike, invisible to any area check), and collapsed sides kept
+  instead of dropped.
+- All three fixed. Area error improved from ~1e-5 to ~1e-11; overlap, gap and
+  spill now below 1e-15 of the region area on every configuration.
+- `validate` strengthened (joins, stray vertices, degeneracy) and
+  `validate_strict` added (shapely simplicity, overlap, gap, spill). 37 new
+  tests. Suite at **355 passed**.
+
+### 2026-09-24 — block builder
+- `blocking/blocks.py`: constructive decomposition off the medial graph. Span,
+  vertex, corner-wedge and ring blocks; boundary arcs by short-path stitching.
+- Every configuration tiles, area error ≤ 8.5e−5, including bluff bodies, cusped
+  trailing edges and refined split densities.
+- Fixed a real bug on the way: at a medial vertex with three or more touches the
+  collapse took the first two as the edge's pair, so the touch jumped to another
+  loop for exactly one sample at each edge end. Now the pair that continues the
+  neighbouring sample is chosen; loop changes along every edge went to zero.
+- 43 tests in `test_blocks.py`; `examples/14_blocks.py`. Suite at **318 passed**.
 
 ### 2026-09-24 — superseded code removed, documents tracked
 - Deleted 29 files: the superseded modules, their tests, the four old examples

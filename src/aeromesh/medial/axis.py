@@ -404,6 +404,27 @@ def _collapse(G, kinds, anchors, corner_pts, corner_ang, n_bodies):
         i1 = np.array([G.nodes[n]["touch_index"][0] for n in chain], dtype=int)
         i2 = np.array([G.nodes[n]["touch_index"][min(1, len(G.nodes[n]["touch_index"]) - 1)]
                        for n in chain], dtype=int)
+
+        # At a medial vertex there are three or more touches, and only two of
+        # them belong to *this* edge. Taking the first two gives the wrong pair
+        # at the chain's ends, which shows up as the touch jumping to another
+        # loop for exactly one sample. Pick the pair that continues the
+        # neighbouring sample instead.
+        for end, nb in ((0, 1), (-1, -2)):
+            if len(chain) < 3:
+                break
+            node = chain[end]
+            cand_t = G.nodes[node]["touch"]
+            cand_i = G.nodes[node]["touch_index"]
+            if len(cand_t) <= 2:
+                continue
+            taken: list[int] = []
+            for ref, dst_t, dst_i in ((t1[nb], t1, i1), (t2[nb], t2, i2)):
+                order = np.argsort(np.linalg.norm(cand_t - ref, axis=1))
+                pick = next(int(o) for o in order if int(o) not in taken)
+                taken.append(pick)
+                dst_t[end] = cand_t[pick]
+                dst_i[end] = cand_i[pick]
         for end, idx in ((u, 0), (v, -1)):
             if end in kinds and kinds[end] is VertexKind.CORNER and end in anchors:
                 poly[idx] = corner_pts[anchors[end]]

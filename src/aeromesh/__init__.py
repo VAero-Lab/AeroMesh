@@ -18,13 +18,13 @@ Pipeline status
 S0  geometry, corners, cusp policy, region        available
 S1  medial engine (r_m, theta_m, normals, typing)  available
 S2  singularity solver and certificates            available (4/6 certify)
-S3  decomposition                                  not started
+S3  decomposition                                  blocks build and tile
 S4  mesh construction                              not started
 
 See PROJECT_TRACKER.md for the current state.
 """
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 from aeromesh.geometry.loop import Loop, signed_area
 from aeromesh.geometry.corners import (
@@ -49,6 +49,8 @@ from aeromesh.medial.axis import (
     interior_axis,
 )
 from aeromesh.medial.fields import optimum_flow_index
+from aeromesh.blocking.blocks import Block, BlockSystem, decompose
+from aeromesh.blocking.splits import Split, best_split, candidate_splits
 from aeromesh.topology.singularities import (
     Corner,
     Singularity,
@@ -145,5 +147,6 @@ __all__ = [
     "optimum_flow_index",
     "Corner", "Singularity", "SingularityField", "flux_residual",
     "solve_singularities",
+    "Block", "BlockSystem", "decompose", "Split", "best_split", "candidate_splits",
     "build_region",
 ]

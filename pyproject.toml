@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "aeromesh"
-version = "0.4.0"
+version = "0.5.0"
 description = "Automatic structured multiblock meshing for 2D airfoils via the Medial Axis Transform"
 readme = "README.md"
 license = {text = "MIT"}
