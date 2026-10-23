@@ -89,8 +89,34 @@ class BoundaryLoop:
         Chosen to minimise the strength of the point source the corner implies
         in the phi-field, which reduces to rounding the fluid interior angle to
         the nearest multiple of pi/2.
+
+        Rounded **half up**, not to even. ``np.rint`` is round-half-to-even, and
+        an exact tie is not a measure-zero curiosity here: a regular octagon's
+        fluid angle is exactly 225 degrees = 2.5 x pi/2 at every corner, so
+        every corner is a tie, and which way each one falls is then decided by
+        the last bit of floating-point noise in the angle. Rotating the same
+        octagon swung the corner term over -3, -6, -7. A 45-degree wedge
+        trailing edge (315 degrees) and any 135-degree chamfer land on the same
+        tie. Half-up makes it a property of the geometry again.
+
+        Clamped to at least one. A corner sharper than pi/4 would otherwise ask
+        for zero elements at a mesh node, which Fogg marks as unresolved rather
+        than meshable (sec. 5, CX0); one element is the only sane floor and the
+        corner's own sharpness is reported separately.
         """
-        return np.rint(self.fluid_angles / (np.pi / 2)).astype(int)
+        x = np.asarray(self.fluid_angles, dtype=float) / (np.pi / 2)
+        # Snap to the tie before rounding, not after. Rounding half-up is not
+        # enough on its own: the eight angles of a regular octagon come out as
+        # 2.5 quarter-turns give or take 1e-16, and each one straddles the tie
+        # in whichever direction its own rounding error points, so the corner
+        # term still swung over -6, -7, -8 as the octagon was rotated. Snapping
+        # first makes every exact tie fall the same way, and 1e-6 of a
+        # quarter-turn is five orders coarser than the angles are noisy and six
+        # orders finer than any corner that is not actually a tie -- a blunt
+        # trailing edge sits at 2.909.
+        tie = np.floor(x) + 0.5
+        x = np.where(np.abs(x - tie) < 1e-6, tie, x)
+        return np.maximum(1, np.floor(x + 0.5)).astype(int)
 
     def __repr__(self) -> str:
         kind = "hole" if self.is_hole else "outer"

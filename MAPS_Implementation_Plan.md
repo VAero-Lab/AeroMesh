@@ -125,27 +125,45 @@ case returns singularities inside the slot; the budget balances every time.
 
 ---
 
-## S3 — Decomposition (2.5 weeks)
+## S3 — Decomposition (2.5 weeks) — *in progress*
 
 Replaces `blocking/`. The hardest stage, and the one that must contain no
 per-case code.
 
-- Fogg\'s neighbour database: for each singularity, explore the axis in every
-  direction and record what it meets — another singularity, a convex corner, a
-  concave-corner split — with a resolved/unresolved flag.
-- Ranked split search: candidates are medial radii (constant-s) and ρ-level sets,
-  n = 0 preferred over n = 1, medial angles nearer π and π/2 favoured within
-  each. A singularity is fixed into a block corner only when no split exists.
-- Midpoint-subdivision templates for logically convex m-gons — the one permitted
-  primitive, and it must be named as such in the code.
-- Emit a block graph with conformal connectivity; solve the edge-division
-  integer programme.
+**Done.**
 
-**Gate.** Lone airfoil → ring; cusped TE → the classic C topology; box far field
-→ ring plus corner blocks; two-element → slot blocks. All from one code path,
-and a grep of `blocking/` for any body or domain name returns nothing.
+- **Splits** as curves of the medial coordinate system, orthogonal to the wall
+  by construction, ranked n = 0 before n = 1 and by medial angle within a class.
+- **The ranked search**: one cut per gap between consecutive singularities on an
+  edge, so each block holds at most one. Flares left uncut — along one, θ_m is
+  exactly π − α and r_m exactly linear, so no local criterion can choose a cut
+  position; the corner is *resolved* and its wedge merges into the vertex region.
+- **Blocks built constructively from the medial graph** — spans, vertex regions,
+  corner wedges, rings. No planar arrangement.
+- **Connectivity**: every side is boundary or shared with exactly one block,
+  traversed oppositely. Blocks wound counter-clockwise.
 
----
+**What the validation taught.** The first version passed an area sum and was
+wrong in three ways an area sum cannot see: joins left open by half a sample
+spacing, a boundary *index* written into an outline as a *coordinate* (a
+zero-area spike, which also slipped past a shapely test because `buffer(0)`
+repaired it first), and collapsed sides kept rather than dropped. Validation is
+now layered — joins and stray vertices, then shapely simplicity with overlap,
+gap and spill measured separately, then conformality. **Do not trust an area
+sum on its own.**
+
+**Still to do.**
+
+- Constant-ρ splits — the ring interfaces, and the ρ* that S6 optimises.
+- Midpoint-subdivision templates for logically convex m-gons: the one prescribed
+  construction permitted, to be named as such where used.
+- Region builders for finite-contact vertices.
+
+**Gate.** A lone body gives a ring; a box far field gives regions absorbing the
+corners; multi-element configurations give slot blocks — all from one code path,
+with the anti-prescription grep over `blocking/` returning nothing, every
+configuration tiling and conformal, and each block holding at most one
+singularity.
 
 ## S4 — Mesh construction (1.5 weeks)
 

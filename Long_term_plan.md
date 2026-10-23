@@ -194,16 +194,135 @@ multi-element aerofoil. See D3.
   is a first confirmation — χ = 0, budget zero, n = 0 measured everywhere.
   Pinning the exact constant per boundary convention is real work.
 
-### `aeromesh.blocking` — a ranked search ⬜ S3
+### `aeromesh.blocking` — solve, search, build ✅ S3
 
-Candidate splits are curves of the medial coordinate system: constant-s lines
-(medial radii, the spokes) and constant-ρ level sets with ρ = d_wall/r_m (the
-ring interfaces). A medial radius meets the boundary perpendicularly by
-definition, so **wall orthogonality is by construction**.
+Three layers, in the order they run.
 
-Splits are ranked with n = 0 preferred over n = 1, and medial angles nearer π
-and π/2 favoured within each; a singularity is fixed into a block corner only
-when no permitted split exists.
+**`splits`** — the decomposition splits. A split is a curve of the medial
+coordinate system, never a hand-placed polyline: a constant-s split is a medial
+radius pair running T₁ → p(s) → T₂, and because a medial radius meets the
+boundary perpendicularly by definition, **it is orthogonal to the wall at both
+ends by construction** — verified against the boundary polyline, worst |cos|
+under 0.08. Candidates are ranked as Fogg ranks them: n = 0 before n = 1, and
+within a class the medial angle nearer the ideal.
+
+**`search`** — where the cuts go. On a medial edge carrying singularities at
+s₁ < … < s_k, one cut per gap: (0, s₁), (s₁, s₂), …, (s_k, L). That separates
+the k singularities into k spans and leaves the outer cuts bounding the vertex
+regions. The objective, and it is checkable, is that **each block holds at most
+one singularity**.
+
+A flare is the exception and is left uncut. Along a flare θ_m is *exactly*
+π − α and r_m is *exactly* linear in arc length, so every candidate ranks the
+same and the wedge a cut leaves is a scaled copy of itself wherever it goes —
+no local criterion can exist. Fogg marks such a corner *resolved*, so the wedge
+merges into the neighbouring vertex region.
+
+**`blocks`** — the blocks themselves, constructively from the medial graph
+rather than by computing a planar arrangement: a span between two cuts is a
+four-sided block, a medial vertex is an m-sided region, a loop with no vertices
+is a ring wrapping on itself. Blocks are wound counter-clockwise and carry
+connectivity — every side is either on the region boundary or shared with
+exactly one other block, traversed oppositely by the two. That is what lets S4
+match point counts across an interface.
+
+Validation is deliberately layered, because an area sum is weak: it cannot see
+an overlap cancelled by an equal gap, and it cannot see a zero-area spike at
+all. `validate` checks joins, stray vertices and degeneracy; `validate_strict`
+adds shapely self-intersection and measures overlap, gap and spill separately;
+`interface_report` checks conformality — and a side that pairs with nothing is
+not allowed to pass as a boundary side, which the earlier count could not see
+because `paired + boundary == n_sides` is a tautology.
+
+**`index_certificate`** is the sharpest of the four, and it checks the
+*product*, not a prediction. For any quadrilateral mesh
+
+    Σ_interior (valence − 4) = Σ_boundary (2 − q) − 4χ,
+
+which is Euler's formula rearranged, so it holds identically — which makes it
+useless as a forecast and valuable as a consistency test of the blocking's own
+bookkeeping. Read off the blocks: an m-gon meshed by midpoint subdivision puts
+one node of valence m at its centre, a point where q blocks meet has q quads
+around it, a ring contributes nothing. It resolves what an area test cannot: the
+crack it found between two vertex regions on a fuselage-plus-wing was 5e-7 of
+the region area, below the 1e-6 the shapely check uses, and it was a real hole.
+
+`canonicalise` exists because `n_sides` has to be the *logical* degree and was
+not. Two boundary arcs of a vertex region meet at the medial vertex's shared
+touch at exactly 180°, on smooth wall, with nobody else having a corner there —
+eight such joins out of 23 block corners on one blocking, which reported
+`[8,8,8,7]` for logical `[5,6,5,5]`. Everything downstream reads `n_sides` as the
+degree, so a spurious side is a spurious unit of index and a 180° one-quad cell
+on the wall.
+
+`design_index` is the companion: what the blocking *asks for*, from its corner
+angles, `Σ(2 − round(θ/90°)) − 4` per block. It agrees with the singularity
+field's budget where midpoint subdivision does not, and the difference —
+`quality()["design_gap"]` — localises to the unresolved reflex corners.
+
+**`layers`** — the other family of medial curves. A constant-s curve is a
+medial radius pair; a **constant-ρ** curve is the offset
+C(s) = T(s) + ρ·(p(s) − T(s)), the outer edge of a near-wall block.
+
+The thickness law is `δ(s) = min(δ_target, ρ_max·r_m(s))`. Constant ρ alone is
+the coordinate working correctly and the wrong law: near-uniform along a lone
+body (1.4× over a chord) and collapsing 37× in a flap slot, because a boundary
+layer's thickness is set by the flow, not by how much room there happens to be —
+it must merely *fit*. The medial term is the ceiling that makes it fit, and
+ρ_max becomes the safety margin while remaining the quantity S6 varies. The cap
+has to cap *pointwise*: smoothing the radius field raises it exactly where it is
+the only thing preventing a collision, 12.5× in a slot, so the smoothed field is
+clipped back to the raw one. That restores a real guarantee — δ < r_m pointwise
+is **sufficient** for the offset to be simple, since a crossing would put a
+point strictly inside a maximal inscribed disc.
+
+`insert_layer` puts the layer in as a **split of the blocking**, not as a new
+region to decompose. Peeling and re-deriving was the wrong order of operations:
+the offset curve carries enough small-scale structure to grow medial branches of
+its own (4 blocks → 15), and smoothing the curve is worse, because averaging a
+curve shortens it and drags the offset onto the wall (wall distance 1.5× → 66×).
+Splitting inherits the topology instead of recomputing it, and the split is
+exact — a medial radius meets the wall at a right angle and a constant-ρ curve
+is parallel to it, so the offset crosses a cut at the point reached by travelling
+δ along it from its wall foot, an arc-length step with no tolerance in it. No
+singularity is created: four blocks meet at each crossing, so the node is
+regular and the certificate is unchanged.
+
+Trimming is a property of the **cut**, not of the block. The wake region of a C
+far field meets the wall only at the trailing-edge *point*, so it has no wall
+side; driving the trim from "this block has a wall run" left its cuts full
+length while its neighbours trimmed theirs, and it overlapped their layer by
+2e-8 of the region — two orders below the tiling check, and caught by the
+certificate. A block touching the wall at a point still gets its share of the
+band: the curve at distance δ from a point is a circular arc.
+
+**`templates`** — m-gons into quadrilaterals, by midpoint subdivision. This is
+the one prescribed construction the method allows and it is named as such.
+
+It must be applied to **every** block: subdivision splits each side at its
+midpoint, so a quad left whole beside a subdivided neighbour carries a node in
+the middle of a side the neighbour runs straight past. All or nothing, and the
+system comes back untouched with the reason in `notes` if any block would fold.
+
+Straight spokes to a centre fold at *any* centre — the area centroid of a layer
+strip landed exactly on one of its own corners, the inscribed-circle centre is
+interior by construction but the straight lines to it still leave a vertex
+region wrapping a quarter of the domain, and even a four-sided span around half
+an aerofoil folded. 5 of 8 blocks. The construction that cannot fold is
+**Tutte's**: a discrete harmonic map of a triangulated disc onto a convex region
+is injective, so the block is triangulated, its boundary sent to the unit circle
+by arc length, the Laplace system solved, the spokes taken as straight radii
+there and mapped back. Note Tutte constrains the *target*, not the source, so a
+strongly re-entrant block is handled rather than rejected. Triangle must be told
+(`Y`) not to insert Steiner points on the boundary — otherwise they get no
+Dirichlet value, are solved as free, the boundary map stops being a
+homeomorphism and the guarantee evaporates, which is why refining the spokes had
+not converged (10, 8, 4, 7 folds out of 42).
+
+Still open, with the diagnosis recorded in the tracker: the reflex
+trailing-edge corner (two grid lines wanted, the outer one necessarily outside
+the medial normal cone by 2.7°, and the two corners' downstream rays crossing
+0.021 chord behind the trailing edge), and the predictor's residual.
 
 ### `aeromesh.mesh` — construction ⬜ S4
 
@@ -233,8 +352,8 @@ Full detail, gates and estimates in [PROJECT_TRACKER.md](PROJECT_TRACKER.md).
 |---|---|---|
 | **S0** | Loop, corners, cusp policy, Region, far field | ✅ done 2026-09-08 |
 | **S1** | Medial engine | ✅ done 2026-09-08 |
-| **S2** | Singularity solver and certificates | 🔨 next |
-| **S3** | Decomposition | ⬜ |
+| **S2** | Singularity solver and certificates | ⚠️ mostly done |
+| **S3** | Decomposition | 🔨 conformal blocking |
 | **S4** | Mesh construction | ⬜ |
 | **S5** | Adversarial geometry gate | ⬜ |
 | **S6** | Quality and optimisation | ⬜ |

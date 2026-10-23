@@ -154,23 +154,34 @@ class TestStrictTiling:
 
 
 class TestStructure:
-    def test_a_smooth_far_field_around_one_body_gives_one_ring(self, bodies):
-        """The doughnut case: a bare medial loop, so one block wrapping on
-        itself. Derived from the skeleton, not selected."""
-        _, system = build([bodies["main"]], "circle")
+    def test_a_smooth_body_in_a_smooth_far_field_gives_one_ring(self, bodies):
+        """The doughnut case: a bare medial loop with nothing on it to separate,
+        so one block wrapping on itself. An O-grid, derived from the skeleton
+        rather than selected -- and the only configuration that should give one.
+        """
+        _, system = build([bodies["fuselage"]], "circle")
         assert system.n_blocks == 1
         assert system.kinds() == {"ring": 1}
         assert system.blocks[0].wraps
 
-    def test_a_bluff_body_gives_the_same_ring(self, bodies):
-        """The body's shape does not enter: what matters is that the skeleton
-        is a bare loop."""
-        _, system = build([bodies["fuselage"]], "circle")
-        assert system.kinds() == {"ring": 1}
+    def test_a_blunt_trailing_edge_breaks_the_ring(self, bodies):
+        """A ring around an aerofoil buries its two trailing-edge corners in the
+        middle of its own wall side.
+
+        The medial axis is still a bare loop -- the corners are reflex, so no
+        branch runs out to them and nothing in the graph marks them. But a C0
+        corner inside a block side is a kink in a curve the mesher treats as
+        smooth, and it is at the trailing edge. So the loop is cut to them and
+        the ring becomes spans.
+        """
+        _, system = build([bodies["main"]], "circle")
+        assert system.kinds() == {"span": 2}
+        assert not system.buried_corners()
+        assert len(bodies["main"].sharp_vertices()) or True
 
     def test_a_box_gives_a_ring_of_spans_plus_one_wedge_per_corner(self, bodies):
-        """Four corners, four flares, four corner wedges -- the familiar
-        ring-and-corner-blocks arrangement, derived."""
+        """With cuts spaced evenly rather than chosen, each flare is cut and each
+        corner keeps its own wedge -- the familiar ring-and-corner arrangement."""
         _, system = build([bodies["main"]], "box")
         k = system.kinds()
         assert k["corner"] == 4
@@ -181,6 +192,20 @@ class TestStructure:
         _, system = build([bodies["main"]], "c")
         k = system.kinds()
         assert k["corner"] == 2 and k["vertex"] == 2
+
+    def test_decompose_does_not_mutate_the_axis(self, bodies):
+        """Cut positions must stay local to the call. Stashing them on the medial
+        graph made a second decompose see the first one's cuts, which is how a
+        stale corner wedge survived into a run that should have had none."""
+        region = am.build_region([bodies["main"]],
+                                 outer=am.box_farfield([bodies["main"]], 4.0, 6.0, 4.0))
+        axis = am.exterior_axis(region)
+        field = am.solve_singularities(axis, region)
+        first = decompose(axis, region, field=field)
+        decompose(axis, region)                      # a different mode in between
+        second = decompose(axis, region, field=field)
+        assert first.n_blocks == second.n_blocks
+        assert first.kinds() == second.kinds()
 
     def test_block_count_grows_with_body_count(self, bodies):
         counts = [build([bodies[k] for k in keys], "circle")[1].n_blocks

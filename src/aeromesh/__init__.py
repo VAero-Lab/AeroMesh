@@ -50,6 +50,10 @@ from aeromesh.medial.axis import (
 )
 from aeromesh.medial.fields import optimum_flow_index
 from aeromesh.blocking.blocks import Block, BlockSystem, decompose
+from aeromesh.blocking.layers import (insert_layer, peel, rho_offset,
+                                      wall_distance)
+from aeromesh.blocking.templates import quad_faults, subdivide, to_quads
+from aeromesh.blocking.search import select_splits
 from aeromesh.blocking.splits import Split, best_split, candidate_splits
 from aeromesh.topology.singularities import (
     Corner,
@@ -148,5 +152,7 @@ __all__ = [
     "Corner", "Singularity", "SingularityField", "flux_residual",
     "solve_singularities",
     "Block", "BlockSystem", "decompose", "Split", "best_split", "candidate_splits",
+    "select_splits", "rho_offset", "peel", "wall_distance", "insert_layer",
+    "to_quads", "subdivide", "quad_faults",
     "build_region",
 ]

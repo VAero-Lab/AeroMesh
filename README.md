@@ -5,8 +5,16 @@ configurations, driven by the medial axis. Companion to
 [AeroShape](https://github.com/victor-alulema/aeroshape); Pillar III of the
 MAPS research programme.
 
-**Status: under active reconstruction.** S0 (geometry foundation) is complete;
-the medial engine is next. See [PROJECT_TRACKER.md](PROJECT_TRACKER.md).
+**Status: under active construction.** The geometry foundation, the medial
+engine, the singularity solver, the block decomposition, the near-wall layer and
+quadrilateralisation all work. Over seventeen configurations — aerofoils, two-
+and three-element arrangements, a fuselage with a wing, three bodies, discs and
+regular polygon bodies, in box, C and circular far fields — every stage is
+*sound*: the blocks tile, no outline crosses itself, every side is either on the
+boundary or shared with exactly one other block, and the index budget balances.
+Nine of the seventeen reach an all-quadrilateral blocking. Mesh construction
+proper — transfinite interpolation, elliptic smoothing, export — is next. See
+[PROJECT_TRACKER.md](PROJECT_TRACKER.md).
 
 ---
 
@@ -63,13 +71,37 @@ C, O and H are labels you read off the result — never inputs.
    when the far field sits fifty chords away.
 2. **Singularities** solved by flux balance on the medial angle θ_m
    (Fogg, Armstrong & Robinson 2015), not looked up in a rule table.
-3. **Certificates** before construction: the medial graph's cycle count must
-   equal the body count, and the singularity budget must balance against the
-   Euler characteristic.
+3. **Certificates**, two of them. Before construction: the medial graph's cycle
+   count must equal the body count. After: the delivered blocking must balance
+   the index budget `Σ(valence − 4) = Σ(2 − q) − 4χ`. That identity holds for
+   every valid quadrilateral mesh, which is exactly why checking it on the
+   *product* is a bookkeeping test and not a forecast — and it resolves cracks
+   three orders finer than an area test, which is how a 5×10⁻⁷ hole between two
+   vertex regions was found.
 4. **Decomposition** as a ranked search over splits that are curves of the
    medial coordinate system (s, ρ), so interfaces meet walls orthogonally by
-   construction.
-5. **Mesh** by transfinite interpolation and elliptic smoothing, with wall
+   construction. Cuts go one per gap between singularities, so each block holds
+   at most one; blocks are built constructively from the medial graph and carry
+   conformal connectivity.
+5. **Blocking by zone**, because one decomposition cannot serve two objectives.
+   The medial decomposition of steps 2–4 is a *CAD* method — well-shaped quads
+   on a part — and CFD wants something else at the wall: extreme anisotropy,
+   orthogonal cells and a fixed Δy₁. Asked to do both it did neither, producing
+   blockings that passed every certificate and could not be meshed. So the
+   near-wall region is **built** as a collar rather than decomposed: an annulus
+   around the body, because a band around a closed curve cannot be anything
+   else; rays from each corner's normal cone, as many as its element count asks
+   for; bands between rays of different corners, wedges between rays of the
+   same. Thickness is `min(δ_target, ρ_max·r_m)` — the flow sets it, the medial
+   radius caps it to the room available. Nothing in it names a configuration,
+   and the same code runs on sharp and blunt trailing edges. Zones 2 (mid-field,
+   from the medial features *between* bodies) and 3 (far field) are next.
+6. **Quadrilateralisation** by midpoint subdivision — the one prescribed
+   construction, and named as such. Applied to every block, or none, because a
+   partial subdivision is not conformal; and with the spokes built by a harmonic
+   map onto a disc, since straight spokes to a centre fold at any choice of
+   centre and Tutte's theorem is the construction that cannot.
+7. **Mesh** by transfinite interpolation and elliptic smoothing, with wall
    clustering derived from y⁺, Reynolds number and altitude.
 
 ## Install
@@ -97,9 +129,21 @@ python -m pytest tests -q
 
 The suite is invariant-based by policy: total turning equals 2π, resampling
 preserves a polygon's perimeter, a rigid motion preserves the corner set, an
-opened cusp conserves turning. Shape-only assertions are not enough — a green
-suite of them is how a medial axis carrying branches of radius zero once passed
-as validated.
+opened cusp conserves turning, the medial graph's cycle count equals the body
+count, and the blocks tile the region with overlap, gap and spill each measured
+separately.
+
+Shape-only assertions are not enough — a green suite of them is how a medial
+axis carrying branches of radius zero once passed as validated. Nor is an area
+sum: it cannot see an overlap cancelled by an equal gap, and it is completely
+blind to a zero-area spike. Three real defects in the block builder hid behind
+one before the stricter checks were added.
+
+Nor is a check that cannot fail. `paired + boundary == n_sides` held whatever
+happened, because a side that pairs with nobody was filed as a boundary side;
+ten unpaired sides passed as conformal. Every check added since names, in its
+own docstring, the defect it was written to catch and the measurement that found
+it.
 
 ## Documents
 
@@ -120,6 +164,10 @@ as validated.
    dimensions. *Computer Aided Geometric Design*, 25, 14–40.
 4. Thompson, J.F., Thames, F.C., Mastin, C.W. (1974). Automatic numerical
    generation of body-fitted curvilinear coordinate systems. *JCP*, 15(3).
+5. Tutte, W.T. (1963). How to draw a graph. *Proc. London Math. Soc.*, 13.
+   — the injectivity guarantee the quadrilateralisation rests on.
+6. Shewchuk, J.R. (1996). Triangle: engineering a 2D quality mesh generator and
+   Delaunay triangulator. *Applied Computational Geometry*.
 
 ## Licence
 
