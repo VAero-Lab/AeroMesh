@@ -1,5 +1,15 @@
 # AeroMesh — Project Tracker
 
+> **Superseded in part, 23 November 2026.** Everything below describing the
+> medial-axis blocking engine, the interpolated collar and the marched collar
+> documents code that has been **removed** (`blocking/`, `topology/`, and
+> thirteen test modules). The current method is the marched C/O mesh in
+> `src/aeromesh/mesh/`, and the live account of it is
+> `PAPER/report/aeromesh_report.pdf` — see §17 there for what was removed and
+> why, and §16.4 for the three-paper plan. `medial/` is kept, unused on the
+> single-body path, for the multi-element and 3-D work.
+
+
 **Owner:** Victor Alulema · **Thesis pillar:** III (MAPS) · **Started tracking:** 2026-09-08
 
 The single source of truth for what is built, what is next, and what has been
@@ -32,7 +42,7 @@ case. It must be named as such where it is used.
 | **S2** | Singularity solver + certificates | ⚠️ **realised certificate exact; predictor open** | 1.5 wk | 5 of 6 |
 | **S3** | Decomposition | ⚠️ **sound on 17/17; all-quad on 9/17 — but soundness proved insufficient, see SZ** | 2.5 wk | met, and not enough |
 | **SZ** | Zoned blocking — collar / mid-field / far field | 🔨 **zone 1 done and measured; zones 2–3 not started** | 2 wk | — |
-| **S4** | Mesh construction (TFI, TTM, export) | 🔨 **quadrilateralisation done; TFI done inside the collar** | 1.5 wk | — |
+| **S4** | Mesh construction (TFI, TTM, export) | 🔨 **single airfoil complete and solver-validated (2026-11-17); multi-element open** | 1.5 wk | — |
 | **S5** | Adversarial geometry gate | ⬜ not started | 1 wk | — |
 | **S6** | Quality metrics + optimisation | ⬜ not started | 1.5 wk | — |
 | **S7** | Bunin φ-field by FEM — *optional* | ⬜ not started | 1 wk | — |
@@ -657,8 +667,381 @@ high-camber ones are in the list deliberately, see the changelog for 21 Oct.
       67°+ in the bands). A Winslow or angle-based smoother on the assembled
       wedge, which may move that node, is the remaining idea; plain Laplacian is
       ruled out by measurement (lesson 4).
-- [ ] Multi-body collars: built per body, so they work, but the zone-1/zone-2
-      interface between two near bodies is untested.
+- [ ] **Multi-body collars are broken.** This entry previously read "built per
+      body, so they work" — an inference from the code's structure, written
+      without ever running it, and false. Measured on a two-element
+      configuration (NACA 2412 with a 0.32-scale flap at −28°, δ_target 0.02,
+      ρ_max 0.05): the main body's collar reaches a minimum angle of **8.0°**
+      and the flap's **1.3°** with a maximum of 178.9° and **negative
+      Jacobians**. The cause is that the medial cap finally bites — δ runs
+      0.0025 to 0.0200, an 8× variation around one body — and nothing in the
+      collar was built or tested against a thickness that varies that much.
+      Every reported collar result in this tracker is single-body.
+      Note what this also says about the checks: `validate_mesh` returned
+      coverage 99.80% and 99.89% on these two folded meshes. Coverage caught
+      the folds of 2026-10-21 and is blind to these; only the Jacobian sign
+      caught the flap, and nothing at all caught the main body's 8.0°.
+
+---
+
+## Audit of 2026-10-27 — the collar does not control the boundary layer
+
+Commissioned after the observation that a series of collar defects had been
+reported as successful runs. Four adversarial audits were run (two completed,
+two were finished by hand after hitting a session limit), plus independent
+measurement. **Every finding below was reproduced directly, not taken on
+report.** Nothing here is an opinion about the code; each line is a number.
+
+The pattern across all of it: **every check that passed was written by the same
+hand as the thing it checked, and none of the checks had themselves been
+tested.** That is the defect to fix first, because until it is fixed no
+measurement of anything else can be believed.
+
+### A — The instruments
+
+| # | finding | evidence |
+|---|---|---|
+| **A1** | `validate_mesh`'s `ok` is four clauses — coverage, overlap, outside, all_positive. **`min_angle` is computed, returned, and gates nothing.** | "no cell below 45°" was never an assertion, only a human reading a printout. A mesh sheared to a 0.12° included angle returns `ok=True`. Polygonal bodies mesh at 3.4° and return `ok=True`. |
+| **A2** | The coverage threshold is **structurally trapped**, not mistuned. | A *correct* mesh at `target_spacing=0.04` scores 0.998533 and is **rejected**. A missing block costs 2.3e-4, while the defect-free chord deficit at the same spacing is 3.5e-4 — already larger. No threshold value separates them. |
+| **A3** | **Self-overlap is invisible.** `overlap = Σ(hull areas) − union` uses `buffer(0)`-dissolved areas on both sides, so a ring that doubles back cancels. | Doubled unit square: `buffer(0).area = 1.0`, shoelace = 2.0. A patch wrapping the collar twice reports `overlap = −6.6e-16`, `ok=True`, with true self-overlap 98% of the annulus. **The 204% fold that motivated the coverage check would pass today.** |
+| **A4** | `sample=7` is a **stride on the flattened node array**, not points per cell, and it is used only by `outside`. | 6314 nodes, 908 examined (14.4%). A node flung 28.9 δ outside the collar at an off-stride index leaves `outside` at its baseline value, bit for bit. |
+| **A5** | **There is no conformality check of any kind** on the meshed grids. Gaps are 653× less visible than overlaps. | A crack pushed *into* a neighbour is caught at 2.09e-6; the same crack pushed *away* is caught at 1.367e-3 — 6.8% of the layer thickness, 13.7 first-cell heights. |
+| **A6** | 6 of 17 injected defects missed, including **deleting an entire wedge apex block**. | Delete patch 1 or 5: coverage 0.999653 → 0.999421, `ok=True`. Two of the eight blocks are unprotected — and they are the apex blocks the Fermat-point work exists to get right. |
+| **A7** | The Δy₁ test is **vacuous twice over**. | `min` over patches of `np.min` over nodes — a double minimum, satisfied by the handful of nodes next to the rays. And `test_wall_spacing_survives_assembly_smoothing` **never applies smoothing**. |
+
+**Sound, stated plainly.** `all_positive` is a genuine signed-area sign test and caught every orientation defect thrown at it. Inter-patch `overlap` works and is tight (floor 1e-6). Conformality of the *assembly* is in fact exact — 0 hanging nodes, 0 non-manifold faces — it is simply never verified. And all six no-op mutations of the transforming functions (`wall_clustering`, `curvature_spacing`, `smooth_offset`, `_corresponding`, `fermat_point`, `smooth_assembly`) were **killed** by the existing tests.
+
+### B — The mesh
+
+**B1 — `first_cell` does not control the first cell height.** The headline defect.
+
+| requested y₁ | achieved median | median/request | % of wall within 10% |
+|---|---|---|---|
+| 1e-4 (the default, reported as achieved) | 4.57e-4 | **4.6×** | **5.7%** |
+| 1e-5 | 4.12e-4 | 41× | 3.3% |
+| 1e-6 | 4.08e-4 | **408×** | 1.9% |
+
+The achieved value pins to `delta/(n_across−1)` = 8.33e-4 regardless of the
+request. Asking for a 100× finer wall cell moves the median by 12%.
+
+*Mechanism, proved.* `patch_from_nodes` is bilinear TFI on a **uniform**
+computational coordinate, so the wall-normal clustering enters a band only
+through its two end rays, as a correction linear in u. At a blunt trailing edge
+those two rays point in opposite directions, so at mid-band the two corrections
+cancel each other and leave the bare uniform spacing. The internal control is
+decisive: the 0.002-long TE **base** band, whose two rays are *parallel* (ray
+direction span 0.0°), achieves y₁ to within 2% and 0.00° wall
+non-orthogonality; the main band, with a 163.7° ray span, fails by 9.4× and
+12.8°. **There is effectively no boundary-layer clustering in the band
+interior** — 16 cells inside δ₉₉ with a height ratio of 1.90, near-uniform.
+
+**B2 — no valid wall treatment.** At Re = 6e6, y⁺ of the first node spans
+**21.5 to 318** around the wall. Zero nodes below y⁺ = 30; one node in the log
+layer at mid-chord; 26% of the wall has its first cell centre in the buffer
+layer, where wall functions are invalid. Wall-resolved RANS needs y⁺ ≈ 1.
+
+**B3 — wall spacing and wall orthogonality are in direct conflict** under this
+construction, and the conflict worsens the more you ask for.
+
+| `first_cell` | median non-orthogonality | max |
+|---|---|---|
+| uniform (Δ/24) | **0.08°** | 8.81° |
+| 1e-4 | 8.34° | 12.83° |
+| 1e-5 | — | 19.6° |
+| 1e-6 | — | 22.2° |
+
+On NACA 6409, 11–12% of the wall exceeds 15°, concentrated at x/c = 0.68–0.72
+on the upper surface — the adverse-pressure-gradient region, where C_f and
+separation onset are most sensitive. The worst nodes are **not** at the leading
+edge, trailing edge or wedge; the error is systematic along the band.
+
+**B4 — the trailing edge.** 36× along-wall spacing jump at both blunt TE
+corners (1.03e-2 → 2.86e-4), caused by `n_u = max(8, round(L/target)+1)`
+forcing 7 cells onto a 0.002-long base face. 98× cell-volume jump at the
+band↔wedge interface. The Fermat valence-3 node sits 4.1e-3 from the wall —
+20.5% of the collar, **inside δ₉₉, at y⁺ ≈ 890**, 0.4% chord into the wake,
+where the Kutta condition and the wake deficit are set. Its 120°/120°/120° is
+exactly achieved; the placement is the problem, not the angle.
+
+**B5 — the handover to zone 2 is badly graded.** 40:1 spacing range around the
+outer curve, **8.7× between adjacent cells**, 2.7× variation in cell height,
+growth ratio 1.012 (no outward momentum), and faces still 6–7:1 anisotropic.
+The handover *shape* is healthy — closed, max turn 8–12°, star-shaped about its
+centroid in every case.
+
+**B6 — multi-body collars are broken** (see the SZ open items). Main body 8.0°,
+flap 1.3°, negative Jacobians, where δ varies 7.9× in the slot. Quality tracks
+the δ variation monotonically.
+
+**B7 — the governing rule splits three ways.** *Topology derivation is sound
+and genuinely general*: block counts track corner counts with no special-casing
+(3 corners → 3 bands + 9 wedges; 8 → 8 + 8). *Mesh quality off aerofoils is
+bad*: triangle 3.4°, octagon 15.5°, pentagon 23.0°, square 26.9° — every one
+reported `ok=True`. *Corner-free bodies are unimplemented*: a circle or ellipse
+hits the `if not rays` early return at `collar.py:309`, which yields
+`"blocks": []` and no `kinds`/`labels` keys, so `mesh_collar` dies with
+`KeyError`. A band around a corner-free closed curve is a single annular block
+with one periodic seam — forced by the same topology argument the project
+already makes, and simply not written.
+
+**B8 — the headline is fragile.** 59.0° at the defaults, but 30.8° at
+`first_cell=1e-5` (with aspect ratio 1032) and 40.9° at `n_across=9`. It is
+insensitive to far-field distance and aerofoil sampling, and completely
+insensitive to `target_spacing` — the binding constraint is the wedge alone.
+
+### C — Architecture
+
+For a **single body in a circular far field the exterior medial axis is a bare
+self-loop**: 1 node, 1 edge, 0 junctions. Two bodies give 2 junctions, three
+give 4. So zone 2 and zone 3 are trivial concentric annuli for a lone body, and
+**the medial structure that zone 2 exists to exploit appears only once bodies
+interact — which is exactly the regime where zone 1 currently fails (B6).**
+Every collar result reported to date is from the single-body case where zone 2
+would have nothing to do. (The retract certificate b₁ = h holds cleanly at 1, 2
+and 3 bodies.)
+
+### Root cause
+
+One construction choice explains B1, B2, B3, B5 and most of B8: **the collar
+interpolates between the wall and a pre-computed outer curve.** A boundary
+layer cannot be built that way. Interpolation lets the two ends dictate the
+interior, so the spacing law survives only where the end conditions agree, and
+orthogonality is an emergent property rather than an imposed one. A
+boundary-layer mesh must be **marched from the wall**, with orthogonality and
+the spacing law as equations, and the outer curve as a *stopping criterion*
+rather than an input side.
+
+---
+
+## The plan from here — six phases, each with a gate
+
+Ordering principle: **the instruments come first.** Nothing measured after
+2026-10-21 can be trusted until the checks are themselves checked, and every
+phase below is gated on measurements the current apparatus cannot make.
+
+Second principle: **the hardest case leads.** Zone 1 was built and tuned on a
+lone aerofoil, which is the one configuration where zones 2 and 3 are trivial
+and the medial machinery has nothing to do. Multi-element moves to the front.
+
+### Phase 0 — Fix the instruments ✅ **done 2026-10-27**
+
+Delivered. `validate_mesh` rebuilt, `closure_report` and `self_overlap` added,
+`distribution_report` added, `cell_quality` no longer launders degenerate
+cells, and `tests/test_validator.py` (29 tests) injects every defect from the
+audit catalogue and requires each to be caught.
+
+| | before | after |
+|---|---|---|
+| defects detected | 11 of 17 | **17 of 17** |
+| whole block deleted | `ok=True` | caught by `unpaired_edges` |
+| patch wrapping twice | `ok=True`, overlap −6.6e-16 | caught by `self_overlap` |
+| mesh sheared to 0.12° | `ok=True` | caught — `min_angle` now gates |
+| correct mesh at spacing 0.04 | **rejected** | passes |
+| `outside` node coverage | 14.4% (stride 7) | 100%, vectorised |
+
+The gate that replaced coverage is exact rather than thresholded: on a correct
+mesh every one of the 168 interior edges is traversed exactly twice in opposite
+senses, at **every** spacing tested, so the tolerance is 1e-9 instead of a 1e-3
+that a coarse mesh could not meet.
+
+### Phase 1 — Rebuild zone 1 by marching ✅ **done 2026-10-27**
+
+`march_collar` in `blocking/collar.py`, with `tests/test_march.py` (28 tests)
+and `examples/19_marched.py`. The interpolated path is kept for comparison.
+
+| metric, NACA 2412 blunt | interpolated | **marched** |
+|---|---|---|
+| y₁ ratio around the wall | 9.357 | **1.0000** |
+| y₁ honoured within 10% | 5.7% of wall | **100%** |
+| y₁ median / request | 4.57× | **1.00×** |
+| y₁ response to a 10× finer request | 1.0× | **10.0×** |
+| wall non-orthogonality, median | 7.95° | **0.04°** |
+| wall non-orthogonality, p95 | 12.86° | **1.33°** |
+| faces above 10° | 33.4% | **3.4%** |
+| growth rate | 1.044 (blended away) | **1.1938, the requested law exactly** |
+| minimum angle | **59.0°** | 47.4° |
+
+Sixteen cases — eight sections × two trailing edges — all pass: every Jacobian
+positive, y₁ ratio 1.0000, orthogonality median 0.02–0.04°, p95 0.37–3.05°,
+growth 1.1938 exactly.
+
+**And the corner-free case needed no code at all.** Marching never consults a
+corner, so the annulus that topology forces is simply what it produces:
+
+| body | interpolated | **marched** |
+|---|---|---|
+| circle | **crash** | **89.4°** |
+| ellipse 6:1 | **crash** | **82.9°** |
+| triangle | 3.4° | **30.2°** |
+| square | 26.9° | **45.1°** |
+| pentagon | 23.0° | **54.1°** |
+| octagon | 15.5° | **67.5°** |
+
+**Two things were learned the hard way and are pinned by tests.**
+
+*The dissipation must act on the direction, not the position.* A Laplacian of
+the advanced positions has magnitude of order (along-wall spacing)² × curvature
+— about 1e-2 at a leading edge, a hundred times the 1e-4 step it perturbs. It
+dragged nodes tangentially: 88° wall deviations and **4572 of 4872 cells
+inverted**. Smoothing a unit direction is bounded by the angle between
+neighbouring normals, which is the quantity that actually needs spreading.
+
+*An index convention read exactly like a catastrophe.* With the wall stored
+counter-clockwise and `j` running outward, the quads traverse clockwise and
+every signed area comes out negative — 4872 of 4872. The geometry was correct
+throughout: none of the outer ring lay inside the body and its distance from
+the wall was 0.0200 against a target of 0.02. One `[::-1]`.
+
+**What is honestly still wrong**, and belongs to Phase 3 rather than here:
+
+- **The corner.** Every remaining angle defect is at a trailing-edge corner,
+  where no single node can be normal to two faces meeting at 82°. Blunt reaches
+  47°, sharp only **17–20°** — a sharp trailing edge turns through 163° and a
+  single-block O-grid must wrap it. The wake topology is the answer.
+- **Along-wall spacing still jumps**, 5–23× (blunt 5.0, sharp up to 45). Better
+  than the 36× of the interpolated path but nowhere near the 1.2 target. This
+  needs the global interval assignment of Phase 3; the strong curvature
+  clustering that buys the corner its turning room is what costs it here.
+- **The trade is real and should not be glossed:** the interpolated mesh has
+  the better minimum angle (59° against 47°) and no boundary layer. The marched
+  mesh has the boundary layer.
+
+### ~~Phase 0 — Fix the instruments~~ *(original text, for the record)*
+
+- [ ] Replace `validate_mesh`. Split `coverage` into `hole` and `spill` (the
+      union is currently never clipped to the annulus, so mesh *outside* the
+      collar pays for gaps *inside* it). Add `self_overlap` by shoelace-vs-
+      dissolved-area, which is the only thing that sees a fold inside one
+      patch. Vectorise `outside` over **all** nodes and delete `sample`.
+- [ ] Add `closure_report`: every interior edge of the assembly traversed
+      exactly twice in opposite senses. This is **exact and
+      resolution-independent**, so it replaces the trapped coverage threshold
+      rather than competing with it — a correct mesh scores zero at every
+      spacing, and it catches missing blocks, cracks and shrunken patches that
+      area arithmetic cannot.
+- [ ] Gate `ok` on cell quality. `min_angle` currently gates nothing.
+- [ ] Stop `cell_quality` laundering degenerate cells — the `1e-300` guard
+      turns a collapsed edge into a benign 45°. Count degeneracies instead.
+- [ ] **New: a distribution validator.** Every number in finding B is a
+      two-line computation from the grids and not one of them is checked:
+      y₁ at *every* wall node, wall-face non-orthogonality, along-wall and
+      wall-normal expansion ratios, adjacent cell-volume ratio, and y⁺ given a
+      Reynolds number.
+- [ ] **Defect-injection tests for every checker.** A detector that has never
+      been shown to fire is not a detector. The catalogue already exists: 17
+      defects, of which 6 were missed.
+
+**Gate.** Every one of the 17 injected defects is detected; the correct mesh
+passes at six resolutions including `target_spacing=0.04`, which the present
+validator falsely rejects.
+
+### Phase 1 — Rebuild zone 1 by marching, not interpolation
+
+The root cause. Replace TFI-between-wall-and-offset with **hyperbolic/parabolic
+marching from the wall** (Steger–Chaussée / Chan): solve `x_ξ · x_η = 0` with a
+prescribed cell-height distribution.
+
+- [ ] Orthogonality becomes an imposed equation rather than an emergent
+      property — it no longer degrades as the clustering is refined.
+- [ ] y₁ is exact at every station by construction; the `Δ/(n_across−1)` floor
+      disappears.
+- [ ] The growth law is per-line, so it survives into the band interior.
+- [ ] The offset curve and the whole `smooth_offset` / `_corresponding`
+      correspondence machinery **disappear** — there is no correspondence to
+      invert, so the 1.83×-arc-ratio error at the leading edge goes with it.
+- [ ] Marching **terminates when the cell height matches zone 2's spacing**,
+      which makes the handover continuous in spacing *and* growth by
+      construction, and fixes B5 rather than patching it.
+- [ ] Implement the corner-free case: one annular block, one periodic seam.
+
+*Fallback if marching proves unstable on a concave cambered surface:* keep TFI
+but build it in a **normalised layer coordinate** and relocate each line's
+nodes afterwards by `wall_clustering` along that line. Cheaper, fixes y₁
+exactly, and improves but does not solve orthogonality. Elliptic smoothing with
+Thomas–Middlecoff or Sorenson control functions is the third option; plain
+Winslow is already measured useless here, since it holds the boundary and the
+defect is in the interior distribution the boundary dictates.
+
+**Gate.** y₁ within 2% at **every** wall node for requests from 1e-3 to 1e-6;
+wall non-orthogonality median under 1° and max under 5°; growth rate within 2%
+of the requested law everywhere; all Phase 0 checks pass.
+
+### Phase 2 — Make the parameterisation physical
+
+- [ ] y₁ derived from a target y⁺, Reynolds number and altitude, not typed in.
+- [ ] `n_across` and δ **derived, not fixed**: specify y₁ and a growth rate,
+      march until the cell height matches the next zone. Fixing `n_across=25`
+      and `δ=0.02` over-determines the problem.
+- [ ] δ(s) must track δ₉₉(s) ∝ x^0.8, not be constant. Constant 0.02 is 7.7×
+      too thick at x/c = 0.1 and has only 1.23× margin at the trailing edge —
+      and is *exceeded* beyond x/c ≈ 0.54 on a suction side at useful lift.
+      The medial cap stays, as a cap.
+
+**Gate.** y⁺ within a factor of 2 of target around the whole wall at Re = 6e6;
+δ(s) ≥ 1.5 δ₉₉(s) everywhere; both re-measured, not asserted.
+
+### Phase 3 — The trailing edge and interval assignment
+
+- [ ] **Global interval assignment over the whole wall loop** with a
+      spacing-continuity constraint, replacing per-block
+      `n_u = max(8, round(L/target)+1)`. That floor of 8 is both the cause of
+      the 36× jump and a prescribed constant of exactly the kind the governing
+      rule forbids.
+- [ ] Replace the corner fan with a **wake topology**. The current rule puts
+      the irregular node on the wall and inside the layer; a boundary-layer
+      mesh needs the normal family unbroken along every wall face, including
+      the blunt base, with the irregularity pushed *outside* δ.
+
+**Gate.** No adjacent cell-size ratio above 1.2 along the wall or across any
+zone interface; no cell-volume ratio above 2; no irregular node inside δ₉₉.
+
+### Phase 4 — Zones 2 and 3, multi-element first
+
+- [ ] Fix the multi-body collar (δ varying 8× in a slot) **before** building
+      zone 2, since that is the only regime where zone 2 has work to do.
+- [ ] Zone 2 from the medial features between bodies — junctions exist only
+      here (2 for two bodies, 4 for three).
+- [ ] Zone 3 far-field expansion. Budget: 38–64 cells at growth 1.10–1.20 from
+      the collar's last cell to R = 8.
+
+**Gate.** A certified, quality-gated mesh for 1, 2 and 3 bodies, and for
+non-aerofoil bodies (circle, ellipse, polygons) which presently mesh at 3.4–27°
+or crash.
+
+### Phase 5 — Export and solver validation
+
+- [x] Export to OpenFOAM (`mesh/export.py`); `checkMesh` passes. *(OpenFOAM,
+      not SU2, is the referee — see the single-airfoil decision.)*
+- [x] Report §14.1 tasks done 2026-11-17 (see changelog).
+- [x] Run a case. NACA 0012, SA, Re 6e6, α = 0/10/15°, compared against the
+      NASA TMR reference and against pyHyp and Construct2D under one protocol,
+      three levels. **Single airfoil only** — multi-element is still Phase 4.
+
+*Status 2026-11-17:* gate met for the single-airfoil C-mesh — at L2/L3, α = 10°,
+C_d within −0.6/−1.7 counts of NASA, C_l within −1.6 %. See changelog.
+
+**Gate.** Forces within a stated tolerance of a trusted mesh at the same
+Reynolds number. This is the only gate that is not self-refereed, and it is the
+reason to reach it sooner rather than later.
+
+### Standing practice — how this does not happen again
+
+1. **Verify the verifiers.** Every checker ships with defect-injection tests
+   proving it fires. A detector never shown to fire is not evidence.
+2. **Measure at the extremum that can fail, never at the one that cannot.**
+   The Δy₁ test took a minimum over a minimum and was satisfied by the few
+   nodes where the construction happens to be exact.
+3. **No number in a document that is not produced by a re-runnable script.**
+   Every figure in the tracker should be regenerable by name.
+4. **Every ✅ in the invariant registry names a test, and that test is read
+   before the tick is written.** Three rows were ticked against tests that did
+   not test them.
+5. **The battery is a gate, not a demo**, and it includes the cases that are
+   *supposed* to be hard: multi-element, non-aerofoil, corner-free, coarse and
+   fine, and the physically realistic y₁ rather than the comfortable one.
+6. **A conclusion drawn from a broken instrument is withdrawn, not amended.**
+   The `smooth_assembly` measurement had to be redone once its held-node set
+   turned out to be empty; it should not have been published first.
 
 ---
 
@@ -774,9 +1157,13 @@ these is how a skeleton with zero-radius branches shipped as "strictly validated
 | **No smooth peak as a corner** | A detected corner must be window-independent *or* fit the model exactly | `test_corner_smooth_peaks.py` | ✅ |
 | **Corner detection converges** | Refining the sampling can only remove a false corner, never add one | `test_corner_smooth_peaks.py` | ✅ |
 | **r_m positive on the boundary** | Every boundary sample's medial radius exceeds the local point spacing | `test_medial_radius_degeneracy.py` | ✅ |
-| **Collar covers its own area** | Coverage within 0.5%, no overlap, nothing outside — *not* per-cell quality | `test_collar.py`, `test_collar_spacing.py` | ✅ |
+| **Collar covers its own area** | Coverage within 0.5%, no overlap, nothing outside | `test_collar.py`, `test_collar_spacing.py` | ❌ **the metric is broken** — see A1 |
 | **Shared sides are held** | Smoothing an assembly must not move a node on a fixed side | `test_collar_spacing.py` | ✅ |
-| **Δy₁ survives** | The first cell height is what was asked for, after every stage | `test_collar_spacing.py` | ✅ |
+| ~~**Δy₁ survives**~~ | ~~The first cell height is what was asked for~~ | `test_collar_spacing.py` | ❌ **false** — holds on 5.7% of the wall; see A2 |
+| **Assembly is a closed quad complex** | Every interior edge traversed exactly twice, in opposite senses | — | ⬜ not implemented |
+| **y₁ at every wall node** | The requested first cell height, everywhere, not at its minimum | — | ⬜ not implemented |
+| **Wall orthogonality** | Wall-face non-orthogonality below target, everywhere | — | ⬜ not implemented |
+| **Spacing continuity** | No adjacent-cell size ratio above ~1.2, along the wall and across zone interfaces | — | ⬜ not implemented |
 | Block validity | Positive areas, conformal shared edges, every boundary arc covered once | S3 | ✅ |
 | Metamorphic (blocks) | A rigid motion gives an isomorphic block graph | S5 | ⬜ |
 | Randomised | 1000 random configurations → 1000 certified block graphs | S5 | ⬜ |
@@ -808,6 +1195,82 @@ Obsidian note. Only `PAPER/references/` stays ignored — 14 MB of third-party
 PDFs, not ours to redistribute.
 
 ## Changelog
+
+### 2026-11-17 (later) — report §14.1: all six pre-optimisation tasks
+Work dir `~/aeromesh_work` (the earlier `/tmp` one was lost to a shutdown).
+Level-2 control reproduced the old run exactly (Cl 1.07343, Cd 122.48), so old
+L1/L3 runs are reused. Scripts: `validation/study_next.py`, `analyse_next.py`,
+`mesh_next.py`, `locate_nonorth.py`. Report rebuilt as **revision 3**
+(new section "Revision 3"); revision 2 kept as `aeromesh_report_v2.*`.
+
+1. **C/O lift gap — explained: O-mesh discretisation error.** Rejected by
+   measurement: wake line along the freestream (ΔCl −0.0003), coarse wake
+   (−0.0001), exact far field (−0.0002), point-vortex far field (+0.0008 to
+   +0.0011 on *every* mesh, so no effect on the gap). AeroMesh C vs O, same
+   blunt wall: gap 0.0092 at L2 → 0.0048 at L3, mostly the O-mesh moving.
+   C-meshes still −1.3…−1.6 % vs NASA; **untested hypothesis**: NASA is
+   M = 0.15, we are incompressible; Prandtl–Glauert gives +1.1 %.
+2. **L1 non-orthogonality 50.4° — located and reduced.** In the wake, x = 4–6,
+   ~25 layers off the cut, AR ~1000: rows taper at different rates because
+   the wake first-cell excess is added to every layer. Growth-rate ramp
+   hypothesis *refuted* (50.4 → 53.4°). New `c_mesh(wake_soft_cap=3)`:
+   50.4 → 21.4° at L1, 12.4 → 6.0° at L2 (cap 3; 10.4° is cap 10), forces unchanged. Off by default
+   — **decide whether to make it default** before the optimiser.
+3. **Asymptotic range — not reached on drag.** L1.5 and L2.5 added (ratio √2,
+   Celik unequal-ratio procedure). Observed order on Cd 3.2 / 4.5 / 5.2 / 8.8
+   by triplet; the 0.05 % GCI must not be quoted. Extrapolated Cd is stable,
+   121.2–121.4 cts: quote ±0.2 cts.
+4. **Blunt base — gate met.** The old explanation (spacing jump at the corner)
+   was wrong: the wake widening law used ds/ds₀ with ds₀ = the base cell, so
+   refining the base fanned the wake lines 17×. Fix: `spread_ref="te"`, wall
+   graded into the corner (`te_aspect=6`), `base_aspect=3`,
+   `volume_smoothing=1.0` → base y⁺ 0.47 mean / 0.86 max (from 11.3 / 25.0),
+   BL skew 5.20° (floor 4.83°), FV non-orth 18.3°. Cl +0.0023. Options, not
+   defaults yet.
+5. **Exact far field.** March-to-3c + TFI *rejected* (inverts or 73–90°);
+   thin TFI band *rejected* (22–80°). New `farfield.snap_farfield`: slide
+   outer nodes along their own grid lines → R = 500.00 exactly, BL
+   untouched, ΔCl −0.0002, ΔCd +0.3 cts. `c_domain` gained `n_layers`.
+6. **15°.** AeroMesh C L2/L3 Cl −1.78/−1.33 %, Cd 213.6 → 205.2 (8.4 cts
+   between levels: not converged at 15°); pyHyp O +3.2 %, +14.9 cts;
+   Construct2D L2 −1.4 %, −4.6 cts. A fourth level at 15° was not run.
+
+Tests: `tests/test_next_work.py` (4); full suite 920 passed, 4 skipped.
+Open: compressible check of the NASA offset; L4 at 15°; whether
+`wake_soft_cap` and the base settings become defaults (would change the
+standardised numbers).
+
+### 2026-11-16/17 — single-airfoil mesher validated in OpenFOAM; report v2
+*Reconstructed from the output files after the laptop shut down mid-session;
+every number below is read from `validation/results/*.json` via the generated
+tables, not from memory.*
+
+- New modules: `mesh/hyperbolic.py` (marched boundary layer), `airfoil.py`,
+  `farfield.py` (C / rectangle / circle), `spacing.py`, `elliptic.py`,
+  `structured.py`, `export.py`; `quality/metrics.py`. Tests
+  `test_march.py`, `test_airfoil_mesh.py`, `test_validator.py`.
+- Validation harness in `validation/`: OpenFOAM case builder, comparators
+  (pyHyp, Construct2D), standard protocol (same geometry, far field 500 c,
+  same dimensions and y₁, levels L1–L3 at refinement factor 2), collector with
+  Richardson / GCI.
+- **Result, NACA 0012, α = 10°, sharp TE, C-mesh:**
+
+  | mesher | L1 C_d | L2 C_d | L3 C_d | ΔC_d L3 vs NASA | C_l L3 |
+  |---|---|---|---|---|---|
+  | AeroMesh C | 148.7 | 122.5 | 121.4 | −1.7 cts | 1.0735 (−1.6 %) |
+  | Construct2D C | 126.2 | 121.7 | 122.6 | −0.5 cts | 1.0760 |
+  | pyHyp O | 148.8 | 129.7 | 126.3 | +3.2 cts | 1.0984 (+0.7 %) |
+
+  AeroMesh C converges monotonically (p = 4.55, GCI 0.05 %); Construct2D is
+  oscillatory; pyHyp p = 2.50, GCI 0.72 %. Construct2D wins at L1.
+- **Open:** (1) O-meshes give C_l closer to NASA than both C-mesh generators —
+  unexplained. (2) Blunt-TE AeroMesh C has y⁺ max 20–59 (vs ≤ 4 for sharp) —
+  a wall-spacing defect at the blunt base, to be traced. (3) Blunt cases have
+  only L1–L2, so no grid-convergence order there.
+- Measured and recorded in the report: the worst BL cell of the C-mesh sits on
+  a geometric floor at a sharp TE; elliptic smoothing makes it worse; O-mesh
+  around a sharp TE is now refused by construction (it crashed the solver).
+- Report rebuilt: `PAPER/report/aeromesh_report.pdf`, 31 pp; v1 kept.
 
 ### 2026-10-21 — zoned blocking; two defects the narrow battery hid
 
@@ -1305,3 +1768,9 @@ quadrilateralised blocking are all sound (tiles, strict, conformal, certificate
   Faces are now tracked by position across cuts and excluded from re-detection.
 - Verified: one code path over seven configurations including two- and
   three-element arrangements, a bluff body, and a circle.
+
+### 2026-11-18 — report revision 3 deepened; novelty assessment
+- Fixed L2 soft-cap number (cap 3 → 6.0°, not 10.4°).
+- Added analysis: C/O gap order 0.94, common limit within 0.0004; level-1 drag deficit is NOT the non-orthogonality (refuted); drag order rise = resolution threshold + iteration noise floor; 15° converged drag 7–15 cts below NASA on two C-meshes (likely compressibility/SA variant, untested); threats to validity.
+- New §Novelty: element count is known (paving/submapping); new = derived+refused topology for CFD marching, floor certificate, equal-condition benchmark; two-paper plan.
+- Open: defaults decision, compressible M=0.15 run, L4 at 15°, level-1 node-budget study.

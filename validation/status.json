@@ -1,0 +1,57 @@
+{
+ "steps": [
+  {"step": "1. A full mesh, exported and run in a solver",
+   "state": "done",
+   "evidence": "Mesh marched from the wall to 500 chords, written as OpenFOAM polyMesh and SU2. Seven RANS cases run on NACA 0012; see the solver table."},
+  {"step": "2. Trailing-edge topology from corner element counts",
+   "state": "done",
+   "evidence": "Sharp and blunt edges through one code path. No irregular node anywhere; along-wall spacing ratio at most 1.17 (the audit measured 36); minimum angle 81–85° where the marched collar had 17–47°."},
+  {"step": "3. Invariance across the design space",
+   "state": "partial",
+   "evidence": "Camber 0–9% and thickness 6–24% measured, against deformation. Still to do: random CST and UIUC sections, and a comparison against pyHyp itself rather than our own O-mesh."},
+  {"step": "4. Optimisation layer",
+   "state": "open",
+   "evidence": "Not started. The marching already fixes first cell height and orthogonality, so what is left to optimise is the wake-line shape, the along-wall distribution and the dissipation settings."},
+  {"step": "5. Two-element sections",
+   "state": "open",
+   "evidence": "Not started. This is where the medial radius comes back in, as the cap on layer thickness inside a slot."},
+  {"step": "6. Three-dimensional loft",
+   "state": "open",
+   "evidence": "Not started."}
+ ],
+ "defects": [
+  {"where": "Far wake, first layers off the wake cut",
+   "reported": "26 faces above 70°, worst 87.8°",
+   "cause": "First cell height on the wake cut stopped growing 2 chords downstream, leaving cells 4 chords long and 0.0002 tall (aspect ratio 20,000).",
+   "after": "Cell height on the wake cut now grows with the streamwise spacing."},
+  {"where": "Inside the boundary layer over the leading edge",
+   "reported": "35.2° at the tenth layer",
+   "cause": "Averaging the along-wall cell size, meant for the far field, also changed the marched height of thin cells wherever wall spacing was graded.",
+   "after": "Averaging is weighted by cell aspect and leaves thin cells alone."},
+  {"where": "Across the wake line, blunt trailing edge",
+   "reported": "35.4° between the C block and the base strip",
+   "cause": "The first cell on the wake cut and the strip beside it widened at different rates.",
+   "after": "Both use one widening law. Worst face in the mesh is now 12.9° at the default resolution and 3.7° on the fine mesh."},
+  {"where": "Around the trailing edge at very fine first cells",
+   "reported": "45.7° at a first cell of 1e-6 chord",
+   "cause": "Streamwise spacing at the trailing edge was a fixed number, so the corner cell's aspect ratio rose as the first cell shrank.",
+   "after": "Trailing-edge spacing is derived from the first cell height (aspect ratio 135)."}
+ ],
+ "limits": [
+  "The outer boundary is wherever the march ends. It is not yet fitted to a supplied far-field curve, and it lands about 20% inside the nominal radius upstream because thick far-field cells fall short of their prescribed height.",
+  "The C block is identified as the longest wall segment between wake corners. That is right for one trailing edge and has not been tested on bodies with several reflex corners.",
+  "A corner-free body (ellipse, circle) gets the O-mesh; a single annulus around a body with a trailing edge is kept only as a baseline, since it rounds the corner at about 50°.",
+  "The blunt base face is not wall-resolved in its own normal direction: the first cell off the base is one trailing-edge spacing long, and y⁺ there reaches 25 while the rest of the wall averages below 2. The strip needs clustering towards the base.",
+  "The solver check is incompressible and uses one turbulence model on one section. Pressure and skin-friction distributions have not been compared, only forces.",
+  "The wake line leaves along the trailing-edge bisector and turns onto the x axis over one chord. The mesher is not told the angle of attack.",
+  "First cell height is within 0.3% of the request on 12%-thick sections and within 1.1% on the 24%-thick one, at the trailing-edge corner node.",
+  "The earlier medial-axis blocking, the interpolated collar and the marched collar are untouched and are not used by this path."
+ ],
+ "files": [
+  "<code>src/aeromesh/mesh/</code>: <code>spacing.py</code> (graded node distributions, first cell from y⁺), <code>hyperbolic.py</code> (the marcher), <code>airfoil.py</code> (<code>o_mesh</code>, <code>c_mesh</code>), <code>structured.py</code> (blocks and exact assembly checks), <code>export.py</code> (OpenFOAM, SU2, VTK).",
+  "<code>src/aeromesh/quality/metrics.py</code>: wall, boundary-layer and whole-mesh metrics, including the finite-volume non-orthogonality that matches <code>checkMesh</code>.",
+  "<code>tests/test_airfoil_mesh.py</code>: 21 tests, about 40 seconds.",
+  "<code>examples/20_airfoil_mesh.py</code> draws the figure above.",
+  "<code>python validation/camber_sweep.py &lt;work_dir&gt;</code> re-runs the sweep; <code>run_naca0012.py</code> then <code>collect_naca0012.py</code> re-run the solver cases (OpenFOAM 11 needed); <code>make_report.py</code> rebuilds this page from the results."
+ ]
+}

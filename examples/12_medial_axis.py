@@ -20,6 +20,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 import aeromesh as am
+from aeromesh.medial.axis import exterior_axis, interior_axis
 from aeromesh.geometry.region import prepare_boundary
 
 OUT = Path(__file__).resolve().parent.parent / "output"
@@ -55,7 +56,7 @@ print("-" * 118)
 
 for ax, (name, bodies, make_outer) in zip(axes.ravel(), CASES):
     region = am.build_region(bodies, outer=make_outer(bodies))
-    ext = am.exterior_axis(region)
+    ext = exterior_axis(region)
     cert = ext.certificate()
     lo, hi = ext.theta_range()
     print(f"{name:<28}{ext.n_vertices:>4}{ext.n_edges:>4}{cert['betti_1']:>4}"
@@ -76,7 +77,7 @@ for ax, (name, bodies, make_outer) in zip(axes.ravel(), CASES):
     # each body's own interior axis, at the same scale
     for body in bodies:
         b = prepare_boundary(body, is_hole=True, te="blunt")
-        ia = am.interior_axis(b.loop, corners=b.corners.positions(b.loop),
+        ia = interior_axis(b.loop, corners=b.corners.positions(b.loop),
                               corner_idx=b.corners.index, corner_angles=b.fluid_angles)
         for _, _, d in ia.graph.edges(data=True):
             ax.plot(d["polyline"][:, 0], d["polyline"][:, 1],

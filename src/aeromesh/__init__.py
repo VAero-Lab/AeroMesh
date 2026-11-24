@@ -1,74 +1,38 @@
-"""AeroMesh — automatic structured multiblock meshing via the medial axis.
+"""AeroMesh — automatic structured meshing for 2-D aerodynamic sections.
 
-Implements the MAPS method: medial-axis parameterised structured meshing.
+The package exposes the geometry layer (sections, loops, regions, far-field
+curves) at the top level; the mesher itself lives in :mod:`aeromesh.mesh` and
+the quality metrics in :mod:`aeromesh.quality`.
 
-The input is a **set of closed loops** — one outer boundary and any number of
-bodies. There is no domain type to choose and no topology to select. A single
-airfoil, a three-element high-lift configuration and a wing–body crossflow cut
-are the same kind of object, and every stage sees them identically.
+Imports are deliberately shallow. The previous version eagerly imported every
+subpackage here, so ``import aeromesh.mesh`` pulled in three generations of
+the method at once -- the medial-axis blocking engine, both collars and the
+current marcher -- which made the dependency structure impossible to read and
+the retired code impossible to remove. Only what the callers use is imported.
 
-    import aeromesh as am
+:mod:`aeromesh.medial` **is** exported here, although nothing on the
+single-body path calls it. It is kept for the multi-element and
+three-dimensional work, where the medial radius is the cap on layer thickness
+inside a slot, and it costs three modules to import. Keeping its names at the
+top level keeps the public API stable; hiding them to tidy the namespace
+broke callers for no gain.
 
-    main   = am.load_airfoil("2412")
-    flap   = main.transform(scale=0.32, angle=-0.49, dx=1.02, dy=-0.10, name="flap")
-    region = am.build_region([main, flap], farfield=15.0, downstream=25.0)
-
-Pipeline status
----------------
-S0  geometry, corners, cusp policy, region        available
-S1  medial engine (r_m, theta_m, normals, typing)  available
-S2  singularity solver and certificates            available (4/6 certify)
-S3  decomposition                                  blocks build and tile
-S4  mesh construction                              not started
-
-See PROJECT_TRACKER.md for the current state.
+:mod:`aeromesh.mesh` is **not** imported here. It pulls in scipy sparse
+solvers and is the one subpackage heavy enough to be worth deferring.
 """
 
-__version__ = "0.5.0"
-
-from aeromesh.geometry.loop import Loop, signed_area
-from aeromesh.geometry.corners import (
-    Corners,
-    detect_corners,
-    fluid_interior_angle,
-    vertex_turns,
-)
-from aeromesh.geometry.cusp import find_cusps, open_cusp
+from aeromesh.domain.farfield import (box_farfield, c_farfield, circle_farfield,
+                                      offset_farfield, rectangle)
 from aeromesh.geometry.airfoil import load_airfoil, profile_to_loop
-from aeromesh.geometry.region import (
-    BoundaryLoop,
-    Region,
-    largest_inscribed_circle,
-    prepare_boundary,
-)
-from aeromesh.medial.axis import (
-    EdgeKind,
-    MedialAxis,
-    VertexKind,
-    exterior_axis,
-    interior_axis,
-)
-from aeromesh.medial.fields import optimum_flow_index
-from aeromesh.blocking.blocks import Block, BlockSystem, decompose
-from aeromesh.blocking.layers import (insert_layer, peel, rho_offset,
-                                      wall_distance)
-from aeromesh.blocking.templates import quad_faults, subdivide, to_quads
-from aeromesh.blocking.search import select_splits
-from aeromesh.blocking.splits import Split, best_split, candidate_splits
-from aeromesh.topology.singularities import (
-    Corner,
-    Singularity,
-    SingularityField,
-    flux_residual,
-    solve_singularities,
-)
-from aeromesh.domain.farfield import (
-    box_farfield,
-    c_farfield,
-    circle_farfield,
-    offset_farfield,
-    rectangle,
-)
+from aeromesh.geometry.corners import (Corners, detect_corners,
+                                       fluid_interior_angle, vertex_turns)
+from aeromesh.geometry.cusp import find_cusps, open_cusp
+from aeromesh.geometry.loop import Loop, signed_area
+from aeromesh.geometry.region import BoundaryLoop, Region
+from aeromesh.medial.axis import (EdgeKind, MedialAxis, VertexKind,
+                                  exterior_axis, interior_axis)
+from aeromesh.medial.fields import (medial_radius_on_boundary,
+                                    optimum_flow_index)
 
 
 def build_region(
@@ -145,14 +109,10 @@ __all__ = [
     "Corners", "detect_corners", "fluid_interior_angle", "vertex_turns",
     "find_cusps", "open_cusp",
     "load_airfoil", "profile_to_loop",
-    "BoundaryLoop", "Region", "largest_inscribed_circle", "prepare_boundary",
-    "circle_farfield", "c_farfield", "box_farfield", "offset_farfield", "rectangle",
-    "MedialAxis", "VertexKind", "EdgeKind", "exterior_axis", "interior_axis",
-    "optimum_flow_index",
-    "Corner", "Singularity", "SingularityField", "flux_residual",
-    "solve_singularities",
-    "Block", "BlockSystem", "decompose", "Split", "best_split", "candidate_splits",
-    "select_splits", "rho_offset", "peel", "wall_distance", "insert_layer",
-    "to_quads", "subdivide", "quad_faults",
-    "build_region",
+    "Region", "BoundaryLoop", "build_region",
+    "circle_farfield", "c_farfield", "box_farfield", "offset_farfield",
+    "rectangle",
+    "MedialAxis", "EdgeKind", "VertexKind",
+    "exterior_axis", "interior_axis",
+    "medial_radius_on_boundary", "optimum_flow_index",
 ]

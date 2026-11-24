@@ -186,3 +186,84 @@ def optimum_flow_index(theta_m: np.ndarray | float) -> np.ndarray:
     what a thin slot demands. Non-zero values are where singularities live.
     """
     return np.rint((np.pi - np.asarray(theta_m, dtype=np.float64)) / (np.pi / 2)).astype(int)
+
+
+# ─────────────────────────────────────────────────────────────────────
+#  The medial radius seen from the boundary
+#
+#  Salvaged from ``blocking/layers.py`` when that package was retired in
+#  November 2026. It is kept because it is the quantity a multi-element
+#  mesher needs: inside a slot between two bodies it is the cap on how
+#  thick a near-wall layer may be, and that is where the medial axis earns
+#  its place. Nothing on the current single-body path calls it.
+# ─────────────────────────────────────────────────────────────────────
+
+def _loop_of(index: int, offsets: np.ndarray) -> int:
+    return int(np.searchsorted(offsets, index, side="right") - 1)
+
+
+def medial_radius_on_boundary(axis, region) -> dict:
+    """The medial radius seen from each boundary sample.
+
+    For boundary sample ``j`` this is the radius of the maximal inscribed circle
+    that touches there -- the smallest ``r_m`` among the medial samples whose
+    touch is ``j``, since a larger circle through the same point is not the
+    maximal one *at* that point. Samples no medial point happens to touch are
+    filled in by interpolation along the boundary -- and so are samples whose
+    only toucher is degenerate, which is the same situation.
+
+    Degenerate means a medial sample whose circle is smaller than the boundary
+    sampling that produced it, or whose separation angle has collapsed. Neither
+    describes a maximal inscribed circle; both describe the medial axis of the
+    *polygon* rather than of the curve the polygon approximates, and that axis
+    grows a spurious branch at essentially every vertex. Because the rule above
+    is a **minimum** over touchers, one such sample is enough to carry the whole
+    field to zero at that boundary sample, and nothing downstream recovers.
+
+    Measured: NACA 6409 and 6412 -- 6 per cent camber, where the lower surface
+    turns concave and the exterior axis comes close to the wall -- each produce
+    exactly one medial sample with ``r_m = 0`` and ``theta_m = 0``, out of about
+    2075. That one sample set ``r_m = 0`` on the wall near x = 0.38; the
+    thickness cap ``rho_max * r_m`` took ``delta`` to zero with it; and the
+    collar's outer curve then touched the wall -- aspect ratio 8715, negative
+    Jacobians, minimum angle 22 degrees. Every other aerofoil tested was clean,
+    which is why this went unseen until the battery was widened to high camber.
+
+    Returns ``{loop_index: array of r_m, one per sample of that loop}``.
+    """
+    pts, _, offsets = region.sample()
+    n_loops = len(region.boundaries)
+    best = [np.full(int(offsets[i + 1] - offsets[i]), np.inf) for i in range(n_loops)]
+
+    # Mean point spacing of each loop: the length below which that loop cannot
+    # resolve a circle at all.
+    floor = np.empty(n_loops)
+    for i in range(n_loops):
+        q = pts[int(offsets[i]):int(offsets[i + 1])]
+        d_i = np.linalg.norm(np.diff(np.vstack([q, q[:1]]), axis=0), axis=1)
+        floor[i] = float(np.mean(d_i)) if len(d_i) else 0.0
+
+    for _, _, d in axis.graph.edges(data=True):
+        theta = np.asarray(d.get("theta_m", np.full(len(d["r_m"]), np.inf)),
+                           dtype=float)
+        for idx in ("i1", "i2"):
+            J = d[idx].astype(int)
+            for j, r, th in zip(J, d["r_m"], theta):
+                li = _loop_of(int(j), offsets)
+                if not np.isfinite(r) or r <= floor[li] or th <= 1e-9:
+                    continue
+                k = int(j) - int(offsets[li])
+                if r < best[li][k]:
+                    best[li][k] = r
+
+    out = {}
+    for li, arr in enumerate(best):
+        known = np.flatnonzero(np.isfinite(arr))
+        if len(known) < 4:
+            continue
+        n = len(arr)
+        # Interpolate the gaps around the loop, wrapping.
+        xp = np.concatenate([known - n, known, known + n])
+        fp = np.concatenate([arr[known]] * 3)
+        out[li] = np.interp(np.arange(n), xp, fp)
+    return out
